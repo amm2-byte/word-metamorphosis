@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Metamorphosis - Daily Word Chain</title>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            metamorph: {
+              bg:      '#f0ebff',
+              card:    '#ffffff',
+              border:  '#c4b5fd',
+              accent:  '#6d28d9',
+              correct: '#059669',
+              wrong:   '#dc2626',
+              hint:    '#d97706',
+              text:    '#1e1033',
+              muted:   '#5b4a7a',
+              dark:    '#ede9fe',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #f0ebff; }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      15%       { transform: translateX(-8px); }
+      30%       { transform: translateX(8px); }
+      45%       { transform: translateX(-6px); }
+      60%       { transform: translateX(6px); }
+      75%       { transform: translateX(-4px); }
+      90%       { transform: translateX(4px); }
+    }
+    @keyframes popIn {
+      0%   { transform: scale(0.85); opacity: 0; }
+      65%  { transform: scale(1.04); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes fadeSlideIn {
+      0%   { opacity: 0; transform: translateY(6px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes subtlePulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(109,40,217,0); }
+      50%       { box-shadow: 0 0 0 5px rgba(109,40,217,0.2); }
+    }
+    @keyframes flutter {
+      0%, 100% { transform: rotate(-6deg) scale(1); }
+      50%       { transform: rotate(6deg) scale(1.05); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    .anim-shake      { animation: shake 0.42s ease-in-out; }
+    .anim-pop-in     { animation: popIn 0.32s ease-out forwards; }
+    .anim-fade-slide { animation: fadeSlideIn 0.3s ease-out forwards; }
+    .anim-pulse-glow { animation: subtlePulse 2s infinite; }
+    .anim-flutter    { animation: flutter 1.9s ease-in-out infinite; }
+    .anim-fade-in    { animation: fadeIn 0.4s ease-out forwards; }
+
+    input:focus { outline: none; }
+    ::selection { background: rgba(109,40,217,0.25); }
+
+    /* Loading screen */
+    #loading {
+      position: fixed; inset: 0;
+      background: #f0ebff;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9998;
+      transition: opacity 0.4s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .loader-butterfly {
+      font-size: 3rem;
+      animation: flutter 1.5s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading screen shown until React hydrates -->
+  <div id="loading">
+    <div class="loader-butterfly">🦋</div>
+  </div>
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ─────────────────────────────────────────────
+    // PUZZLE DATA  (32 puzzles, all chain rules verified)
+    // chain rule: word[i].at(-1).toUpperCase() === word[i+1][0].toUpperCase()
+    // ─────────────────────────────────────────────
+    const PUZZLES = [
+      {
+        id: 1, title: "Kitchen to Cosmos",
+        words: ["APPLE","EGG","GALAXY","YOLK","KITE","EARTH"],
+        transformations: [
+          "Fruit becomes an oval breakfast protein",
+          "Oval shape expands to a spiral galaxy",
+          "Galaxy's yellow star echoes an egg's center",
+          "A tethered object rises into the sky",
+          "The sky contains this planet beneath your feet"
+        ],
+        hints: ["_","Oval breakfast protein laid by a hen","Billions of stars in a spiral","The yellow center of an egg","Flies on a string in the wind","The planet we live on"]
+      },
+      {
+        id: 2, title: "Seasons Turning",
+        words: ["FROST","THAW","WINTER","RAIN","NOVEMBER","RENEWAL"],
+        transformations: [
+          "Ice crystals begin to melt",
+          "Melting transitions to the coldest season",
+          "The cold season brings precipitation",
+          "A late autumn month arrives with rain",
+          "The month ends and the cycle begins again"
+        ],
+        hints: ["_","Ice begins to melt in the warmth","The coldest season of the year","Water falling from clouds","The 11th month of the year","A fresh start or rebirth"]
+      },
+      {
+        id: 3, title: "Ocean Life",
+        words: ["CORAL","LOBSTER","RAY","YELLOWFIN","NAUTILUS","SQUID","DOLPHIN"],
+        transformations: [
+          "Reef builder meets a red-clawed predator",
+          "Crustacean gives way to a flat fish",
+          "Flat fish swims near a large open-water tuna",
+          "Tuna shares the deep with an ancient mollusk",
+          "Ancient shell-dweller alongside a fast cephalopod",
+          "Cephalopod swims near an intelligent mammal"
+        ],
+        hints: ["_","Red crustacean with claws","A flat fish with a long tail","A large prized tuna species","Ancient spiral-shelled mollusk","Eight-armed sea creature","An intelligent leaping marine mammal"]
+      },
+      {
+        id: 4, title: "City to Wilderness",
+        words: ["ROAD","DIRT","TRAIL","LAKE","ELK","KNOLL","LOG","GROVE"],
+        transformations: [
+          "Paved surface becomes an unpaved path",
+          "Unpaved track narrows to a hiking trail",
+          "Trail ends at a calm body of water",
+          "Lake is home to this large antlered deer",
+          "Deer grazes atop a small rounded hill",
+          "Hill has a fallen piece of timber",
+          "Timber surrounds a small wooded grove"
+        ],
+        hints: ["_","An unpaved earthen surface","A narrow walking path in nature","A body of fresh water","A large deer with sweeping antlers","A small rounded hill","A felled tree trunk","A small cluster of trees"]
+      },
+      {
+        id: 5, title: "Music Evolution",
+        words: ["DRUM","MELODY","YODEL","LYRIC","CHORD","DUET","TEMPO"],
+        transformations: [
+          "Percussion beat gives rise to a flowing tune",
+          "Tune becomes an alpine vocal technique",
+          "Vocal technique becomes a line of song text",
+          "Song words become simultaneous harmonic tones",
+          "Harmony performed by two voices together",
+          "Two voices must keep a steady pace"
+        ],
+        hints: ["_","A sequence of musical notes forming a tune","Alpine singing technique with voice breaks","The words of a song","Multiple notes played at the same time","Two performers singing or playing together","The speed or pace of a piece of music"]
+      },
+      {
+        id: 6, title: "Color Spectrum",
+        words: ["RED","DUSK","KHAKI","INDIGO","OCHRE","EMERALD"],
+        transformations: [
+          "Primary color tints the twilight horizon",
+          "Twilight tone becomes a military earth shade",
+          "Earthy tan deepens to a rich violet-blue",
+          "Violet-blue warms to a golden-brown pigment",
+          "Golden-brown transforms to a vivid gemstone green"
+        ],
+        hints: ["_","The warm color of the horizon at sunset","A military earthy tan-brown color","A deep blue-violet color","A warm yellow-brown earth pigment","A rich deep green, like the gemstone"]
+      },
+      {
+        id: 7, title: "Space Journey",
+        words: ["ROCKET","TRAJECTORY","YONDER","RADAR","RING","GRAVITY"],
+        transformations: [
+          "Launch vehicle follows a curved flight path",
+          "Path arcs toward something yonder in space",
+          "Far distance is scanned by radio waves",
+          "Radio waves bounce off a planetary ring",
+          "Saturn's ring is held in place by this force"
+        ],
+        hints: ["_","The curved path of a projectile or spacecraft","Far away in the distance","Radio detection and ranging system","Saturn has these orbiting it","The invisible force that holds planets in orbit"]
+      },
+      {
+        id: 8, title: "Language Evolution",
+        words: ["RUNE","EPIGRAPH","HAIKU","UNTITLED","DRAFT","TOME"],
+        transformations: [
+          "Ancient carved symbol becomes an inscription",
+          "Short inscription becomes a three-line poem",
+          "Brief poem exists without a name yet",
+          "Nameless work becomes an early rough version",
+          "Early version grows into a great heavy book"
+        ],
+        hints: ["_","A short inscription or opening quotation","A Japanese three-line poem (5-7-5)","A work without a title yet","An early version of a written work","A large, heavy book"]
+      },
+      {
+        id: 9, title: "Farm to Table",
+        words: ["GRAIN","NOODLE","EGG","GARLIC","CASSEROLE","EATERY"],
+        transformations: [
+          "Raw grain is milled and formed into pasta",
+          "Pasta and eggs combine in the same dish",
+          "Egg gets flavor from this pungent bulb",
+          "Garlic enriches this baked one-dish meal",
+          "Casserole is served at a dining establishment"
+        ],
+        hints: ["_","Long thin pasta, a staple food","Breakfast protein from a hen","A pungent flavoring bulb used in cooking","A baked one-pot dish","A place where food is prepared and served"]
+      },
+      {
+        id: 10, title: "Communication Ages",
+        words: ["SCROLL","LETTER","RADIO","ONLINE","EMAIL","LIVESTREAM"],
+        transformations: [
+          "Ancient record gives way to personal written messages",
+          "Personal letters become broadcast radio signals",
+          "Radio waves evolve into internet connectivity",
+          "Online connection enables digital messaging",
+          "Digital messages become real-time video broadcasts"
+        ],
+        hints: ["_","A handwritten personal message","Audio broadcast technology using radio waves","Connected to the internet","A digital written message sent electronically","A real-time video broadcast over the internet"]
+      },
+      {
+        id: 11, title: "Forest Life",
+        words: ["MOSS","SQUIRREL","LEAF","FERN","NEST","TIMBER"],
+        transformations: [
+          "Ground cover shares the forest floor with a tree-dweller",
+          "Tree-dweller leaps through the leafy canopy",
+          "Fallen leaf lands near feathery ferns below",
+          "Fern fronds grow near bird nesting sites",
+          "Nest is woven into the forest timber"
+        ],
+        hints: ["_","A bushy-tailed nut-gathering tree creature","A single blade from a deciduous tree","A feathery non-flowering woodland plant","A structure birds build to raise their young","Harvested wood from forest trees"]
+      },
+      {
+        id: 12, title: "Body to Building",
+        words: ["NERVE","ELBOW","WINDOW","WALL","LOBBY","YARDARM"],
+        transformations: [
+          "Neural signal pathway ends at a bending joint",
+          "Joint's angular shape echoes in a window frame",
+          "Window sits inside a flat vertical surface",
+          "Wall encloses an entrance lobby",
+          "Lobby extends to an outdoor horizontal beam"
+        ],
+        hints: ["_","The joint in the middle of your arm","A glass opening set into a wall","A flat vertical surface of a building","The entrance hall of a building","A horizontal projecting beam or spar"]
+      },
+      {
+        id: 13, title: "Insect Life Cycle",
+        words: ["EGG","GRUB","BUTTERFLY","YUCCA","APHID","DRONE"],
+        transformations: [
+          "Egg hatches into a worm-like larva",
+          "Larva transforms into a winged adult",
+          "Adult butterfly pollinates this spiky desert plant",
+          "Plant hosts a colony of tiny sap-sucking insects",
+          "Insect colony includes this type of male bee"
+        ],
+        hints: ["_","A worm-like insect larva","A beautiful winged transformed insect","A spiky desert plant with tall flower spikes","A tiny plant-feeding insect found in colonies","A male bee, or an unmanned aircraft"]
+      },
+      {
+        id: 14, title: "River Journey",
+        words: ["RAIN","NILE","ESTUARY","YONDER","RAPID","DELTA"],
+        transformations: [
+          "Rainfall feeds and fills the world's longest river",
+          "River mouth opens into an estuary",
+          "The estuary beckons from far yonder",
+          "Far ahead lies a stretch of rushing rapids",
+          "Rapids slow and fan out into a wide delta"
+        ],
+        hints: ["_","The longest river in the world","Where a river meets and merges with the sea","Far away in the distance","A fast, turbulent section of river","A fan-shaped deposit at a river's mouth"]
+      },
+      {
+        id: 15, title: "Weather to Emotion",
+        words: ["STORM","MIST","TENSION","NOSTALGIA","AWE","ELATION"],
+        transformations: [
+          "Violent weather softens into a gentle haze",
+          "Haze creates a feeling of mental strain",
+          "Strain gives way to a longing for the past",
+          "Longing opens into reverential wonder",
+          "Wonder lifts the spirit into pure joy"
+        ],
+        hints: ["_","A light fog or gentle haze","A feeling of mental pressure or strain","A wistful longing for the past","A feeling of reverential wonder","A feeling of great happiness and exhilaration"]
+      },
+      {
+        id: 16, title: "Desert Survival",
+        words: ["SAND","DUNE","ECLIPSE","ENDURE","EMBER","REFUGE"],
+        transformations: [
+          "Loose grains pile into a sculpted hill",
+          "Dune is viewed during a dramatic solar event",
+          "Eclipse teaches patience to endure the dark",
+          "Endurance keeps a small ember alive",
+          "Ember glows inside a place of refuge"
+        ],
+        hints: ["_","A hill of wind-sculpted sand","When the moon blocks the sun","To survive and last through hardship","A small glowing coal or cinder","A safe shelter or place of sanctuary"]
+      },
+      {
+        id: 17, title: "Architecture Ages",
+        words: ["ARCH","HALL","LINTEL","LOFT","TURRET","TOWER"],
+        transformations: [
+          "Curved arch opens into a long corridor",
+          "Corridor is crowned by a horizontal load-bearing beam",
+          "Beam supports an upper open-plan loft space",
+          "Loft connects to a small projecting turret",
+          "Small turret scales up into a tall tower"
+        ],
+        hints: ["_","A long corridor or grand room","A horizontal beam spanning a doorway or window","An upper open-plan floor space","A small tower or projection on a building","A tall narrow structure rising above a building"]
+      },
+      {
+        id: 18, title: "Mythic Creatures",
+        words: ["GRIFFIN","NAIAD","DRAGON","NYMPH","HARPY","YETI"],
+        transformations: [
+          "Lion-eagle hybrid gives way to a water spirit",
+          "Water spirit transforms into a fire-breathing beast",
+          "Fire-breathing beast becomes a nature spirit",
+          "Nature spirit becomes a winged female monster",
+          "Winged monster becomes a legendary mountain giant"
+        ],
+        hints: ["_","A water nymph from Greek mythology","A legendary fire-breathing monster","A nature spirit or minor nature deity","A winged female creature from Greek myth","A legendary ape-like creature of the mountains"]
+      },
+      {
+        id: 19, title: "Precious Things",
+        words: ["GOLD","DIAMOND","DRAPE","EMERALD","DIADEM"],
+        transformations: [
+          "Precious metal compared to the hardest gemstone",
+          "Gemstone glitters like luxurious draped fabric",
+          "Draped fabric matches the color of this green gem",
+          "Green gem adorns a royal jeweled crown"
+        ],
+        hints: ["_","The hardest natural substance on Earth","A hanging fabric or curtain","A precious green gemstone","A jeweled royal crown or decorative headband"]
+      },
+      {
+        id: 20, title: "Animal Senses",
+        words: ["NOSE","ECHO","OPTIC","CLANG","GUST","TONGUE"],
+        transformations: [
+          "Smell organ hears an echo returning from a cave",
+          "Echo becomes a visual optical impression",
+          "Visual sensation gives way to a metallic ring",
+          "The clang turns into a rush of moving air",
+          "Moving air is tasted and felt by this organ"
+        ],
+        hints: ["_","Sound reflecting off a surface","Relating to the eyes or sense of sight","A loud sharp metallic ringing sound","A sudden strong rush of wind","The organ used for tasting and licking"]
+      },
+      {
+        id: 21, title: "Bird Migration",
+        words: ["WING","GUST","THERMAL","LATITUDE","ELEVATION","NORTH"],
+        transformations: [
+          "Wing catches a powerful gust of wind",
+          "Gust feeds into a rising thermal updraft",
+          "Thermal lifts the bird to a new latitude",
+          "New latitude requires gaining altitude",
+          "Altitude is gained by flying ever northward"
+        ],
+        hints: ["_","A sudden strong rush of wind","A rising column of warm air used by soaring birds","Distance measured north or south of the equator","Height above sea level","The direction toward the magnetic pole"]
+      },
+      {
+        id: 22, title: "Dreams and Sleep",
+        words: ["REST","TWILIGHT","TRANCE","ECHO","OMEN","NIGHTMARE"],
+        transformations: [
+          "Restful sleep begins at twilight's soft glow",
+          "Twilight deepens into a hypnotic trance",
+          "Trance creates a lingering mental echo",
+          "Echo becomes a foreboding sign or omen",
+          "Omen transforms into a frightening nightmare"
+        ],
+        hints: ["_","The soft fading light at dusk or dawn","A hypnotic daze or deep daydream","A sound or memory that repeats itself","A sign or portent of future events","A deeply frightening dream"]
+      },
+      {
+        id: 23, title: "Tech Evolution",
+        words: ["CODE","ENCRYPT","TERMINAL","LOGIC","CHIP","PROTOCOL"],
+        transformations: [
+          "Written code gets encoded for security",
+          "Encrypted data is accessed at a terminal",
+          "Terminal runs on underlying logic circuits",
+          "Logic circuits are built onto a silicon chip",
+          "Silicon chip communicates via established protocols"
+        ],
+        hints: ["_","To encode data for security purposes","A command-line interface or computer screen","Systematic reasoning used in circuit design","A tiny silicon processor","Rules governing data communication between systems"]
+      },
+      {
+        id: 24, title: "Compass and Exploration",
+        words: ["NORTH","HORIZON","NAVIGATE","EQUATOR","ROUTE","EXPEDITION"],
+        transformations: [
+          "Heading north toward the visible horizon",
+          "Horizon requires navigating a careful course",
+          "Navigation crosses the equatorial line",
+          "Equator defines the planned route ahead",
+          "Route becomes a full grand expedition"
+        ],
+        hints: ["_","The visible line where the earth meets the sky","To plan and follow a course or path","The imaginary circle around the earth's middle","A planned course or path of travel","A journey undertaken for exploration or discovery"]
+      },
+      {
+        id: 25, title: "Fire and Ice",
+        words: ["FLAME","EMBER","RADIANT","THAW","WINTER","RIME"],
+        transformations: [
+          "Open flame dies down to a glowing ember",
+          "Glowing ember radiates warmth outward",
+          "Radiant warmth slowly causes ice to thaw",
+          "Thaw yields to the return of deep winter",
+          "Winter ends with a crystalline coating of rime"
+        ],
+        hints: ["_","A glowing coal or dying cinder","Giving off warmth and light","To melt ice or frozen ground","The coldest season of the year","Frost or a crystalline icy coating on surfaces"]
+      },
+      {
+        id: 26, title: "Garden Cycle",
+        words: ["SEED","DRIZZLE","EARTH","HERB","BLOSSOM","MULCH"],
+        transformations: [
+          "Seed needs a gentle drizzle of rain to wake",
+          "Drizzle soaks into the waiting earth",
+          "Earth nourishes the growing herb",
+          "Herb plant bursts into full blossom",
+          "Fallen petals and clippings become mulch"
+        ],
+        hints: ["_","Light gentle rainfall","The soil and ground beneath your feet","A culinary or medicinal plant","A flower in full beautiful bloom","Organic matter used to cover and enrich soil"]
+      },
+      {
+        id: 27, title: "Human Journey",
+        words: ["BIRTH","HEARTH","HUNGER","ROMANCE","ECHO","ODYSSEY"],
+        transformations: [
+          "Life begins near the warmth of the hearth",
+          "Hearth warmth eventually gives way to hunger",
+          "Hunger for connection leads to romance",
+          "Romance echoes through memory across time",
+          "Memory shapes a lifelong personal odyssey"
+        ],
+        hints: ["_","A home fireplace, the heart of a home","A strong desire or craving for something","Love and the pursuit of a partner","A sound or feeling that reflects and repeats","A long epic journey full of adventure"]
+      },
+      {
+        id: 28, title: "Time Passage",
+        words: ["DAWN","NOON","NIGHTFALL","LUNAR","RADIANT","TWILIGHT"],
+        transformations: [
+          "Dawn rises to the bright peak of noon",
+          "Noon gives way to the coming of nightfall",
+          "Nightfall reveals the soft lunar glow",
+          "Lunar glow becomes radiant across the sky",
+          "Radiance slowly fades into twilight"
+        ],
+        hints: ["_","The middle of the day when the sun is highest","When darkness falls at the end of the day","Relating to the moon","Glowing with a beautiful warm light","The soft glowing light at dusk or dawn"]
+      },
+      {
+        id: 29, title: "The Metamorphosis",
+        words: ["CATERPILLAR","REFUGE","EMERGE","ETHEREAL","LARVA","ASCEND"],
+        transformations: [
+          "Caterpillar retreats into its refuge cocoon",
+          "From the cocoon refuge, it begins to emerge",
+          "The emerging creature feels ethereal and new",
+          "That ethereal beauty once began as a larva",
+          "From larva it must ascend to complete the cycle"
+        ],
+        hints: ["_","A safe shelter or protective hiding place","To come out from a cocoon or enclosure","Delicate, light, and otherworldly","The worm-like first stage of an insect's life","To rise upward, to climb higher"]
+      },
+      {
+        id: 30, title: "Volcano to Ocean",
+        words: ["LAVA","ASH","HOT","TEPHRA","ATOLL","LAGOON","NAUTICAL"],
+        transformations: [
+          "Flowing lava cools and breaks down into volcanic ash",
+          "Volcanic ash is ejected while still extremely hot",
+          "Hot particles collectively are called tephra",
+          "Tephra builds up over time to form an atoll",
+          "Atoll encircles a calm inner lagoon",
+          "Lagoon waters are nautical territory"
+        ],
+        hints: ["_","Fine powdery volcanic debris","Very high in temperature","Solid volcanic material ejected from an eruption","A ring-shaped coral island and reef","A shallow body of water enclosed by a reef or atoll","Relating to sailors, ships, or the sea"]
+      },
+      {
+        id: 31, title: "Desert to Rainforest",
+        words: ["CACTUS","SAVANNA","ARID","DAMP","PALM","MOSS","STREAM"],
+        transformations: [
+          "Cactus thrives in the dry open savanna",
+          "Savanna conditions are characteristically arid",
+          "Arid shifts to damp as tropical rains arrive",
+          "Damp, humid conditions grow towering palms",
+          "Beneath the palms, soft moss carpets the ground",
+          "Moss covers rocks beside a babbling stream"
+        ],
+        hints: ["_","A flat grassland biome with scattered trees","Very dry, receiving little rainfall","Slightly wet or moisture-laden","A tall tropical tree with long fronds","A soft green plant that carpets rocks and soil","A small, flowing body of fresh water"]
+      },
+      {
+        id: 32, title: "Stone Age to Digital",
+        words: ["FLINT","TOOL","LANGUAGE","ENGINE","ELECTRIC","CHIP","PIXEL"],
+        transformations: [
+          "Flint was shaped into the very first tools",
+          "Tools made it possible to develop language",
+          "Language eventually led to mechanical engines",
+          "Mechanical engine becomes an electric engine",
+          "Electric power shrinks to live on a silicon chip",
+          "Silicon chip processes a single pixel of data"
+        ],
+        hints: ["_","A hard stone shaped into early cutting tools","A system of spoken words and communication","A machine that converts energy into motion","Powered by electricity","A tiny silicon processor at the heart of computing","The smallest unit of a digital image"]
+      },
+    ];
+
+    // ─────────────────────────────────────────────
+    // DATE + DAILY PUZZLE UTILITIES
+    // ─────────────────────────────────────────────
+    const EPOCH = new Date('2024-01-01T00:00:00');
+
+    function getDaysSinceEpoch() {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return Math.floor((today - EPOCH) / 86400000);
+    }
+
+    function getDailyPuzzleIndex() {
+      return getDaysSinceEpoch() % PUZZLES.length;
+    }
+
+    function getPuzzleNumber() {
+      return getDaysSinceEpoch() + 1;
+    }
+
+    function getTodayKey() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function getYesterdayKey() {
+      const now = new Date();
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const y = yesterday.getFullYear();
+      const m = String(yesterday.getMonth() + 1).padStart(2, '0');
+      const d = String(yesterday.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // ─────────────────────────────────────────────
+    // LOCALSTORAGE UTILITIES
+    // ─────────────────────────────────────────────
+    const LS_STATS   = 'metamorphosis_stats';
+    const LS_DONE    = (date) => `metamorphosis_done_${date}`;
+
+    function loadStats() {
+      try {
+        const raw = localStorage.getItem(LS_STATS);
+        if (!raw) return { gamesPlayed: 0, currentStreak: 0, maxStreak: 0, lastCompletedDate: null };
+        return JSON.parse(raw);
+      } catch { return { gamesPlayed: 0, currentStreak: 0, maxStreak: 0, lastCompletedDate: null }; }
+    }
+
+    function saveStats(s) {
+      try { localStorage.setItem(LS_STATS, JSON.stringify(s)); } catch {}
+    }
+
+    function isCompletedToday() {
+      try { return localStorage.getItem(LS_DONE(getTodayKey())) === 'true'; } catch { return false; }
+    }
+
+    function markCompletedToday() {
+      try { localStorage.setItem(LS_DONE(getTodayKey()), 'true'); } catch {}
+    }
+
+    function computeNewStats(prev) {
+      const today = getTodayKey();
+      const yesterday = getYesterdayKey();
+      const newStreak = prev.lastCompletedDate === yesterday || prev.lastCompletedDate === today
+        ? (prev.lastCompletedDate === today ? prev.currentStreak : prev.currentStreak + 1)
+        : 1;
+      return {
+        gamesPlayed: prev.lastCompletedDate === today ? prev.gamesPlayed : prev.gamesPlayed + 1,
+        currentStreak: newStreak,
+        maxStreak: Math.max(prev.maxStreak, newStreak),
+        lastCompletedDate: today,
+      };
+    }
+
+    // ─────────────────────────────────────────────
+    // CONFETTI
+    // ─────────────────────────────────────────────
+    function launchConfetti(canvas) {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      const COLORS = ['#8b5cf6','#10b981','#f59e0b','#ef4444','#3b82f6','#ec4899','#06b6d4','#f97316'];
+      const particles = Array.from({ length: 160 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * -canvas.height * 0.5 - 10,
+        vx: (Math.random() - 0.5) * 5,
+        vy: Math.random() * 3 + 1,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        w: Math.random() * 10 + 5,
+        h: Math.random() * 5 + 3,
+        rot: Math.random() * Math.PI * 2,
+        rotV: (Math.random() - 0.5) * 0.15,
+        alpha: 1,
+        shape: Math.random() > 0.45 ? 'rect' : 'circle',
+      }));
+
+      let raf;
+      function frame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let anyAlive = false;
+        for (const p of particles) {
+          p.vy  += 0.06;
+          p.vx  *= 0.992;
+          p.x   += p.vx;
+          p.y   += p.vy;
+          p.rot += p.rotV;
+          if (p.y > canvas.height * 0.75) p.alpha -= 0.02;
+          if (p.alpha <= 0) continue;
+          anyAlive = true;
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.fillStyle = p.color;
+          if (p.shape === 'rect') {
+            ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          } else {
+            ctx.beginPath();
+            ctx.arc(0, 0, p.w / 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+        if (anyAlive) {
+          raf = requestAnimationFrame(frame);
+        } else {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+      raf = requestAnimationFrame(frame);
+      setTimeout(() => {
+        cancelAnimationFrame(raf);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }, 7000);
+    }
+
+    // ─────────────────────────────────────────────
+    // COUNTDOWN HOOK
+    // ─────────────────────────────────────────────
+    function useCountdown() {
+      const [time, setTime] = useState('');
+      useEffect(() => {
+        function tick() {
+          const now = new Date();
+          const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+          const diff = midnight - now;
+          const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+          const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+          const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+          setTime(`${h}:${m}:${s}`);
+        }
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+      }, []);
+      return time;
+    }
+
+    // ─────────────────────────────────────────────
+    // FOOTER
+    // ─────────────────────────────────────────────
+    function Footer({ onHowToPlay, onStats }) {
+      return (
+        <footer className="w-full border-t-2 border-metamorph-border bg-metamorph-card">
+          <div className="max-w-lg mx-auto px-4 py-3 flex justify-center gap-8">
+            <button
+              onClick={onHowToPlay}
+              className="text-metamorph-muted hover:text-metamorph-text text-sm transition-colors"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+            >
+              How to Play
+            </button>
+            <button
+              onClick={onStats}
+              className="text-metamorph-muted hover:text-metamorph-text text-sm transition-colors"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+            >
+              Statistics
+            </button>
+          </div>
+        </footer>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // HOW TO PLAY MODAL
+    // ─────────────────────────────────────────────
+    function HowToPlayModal({ onClose }) {
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 anim-fade-in">
+          <div className="bg-white rounded-2xl border-2 border-metamorph-border max-w-sm w-full p-6 flex flex-col gap-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-metamorph-accent">How to Play</h2>
+              <button
+                onClick={onClose}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-metamorph-dark hover:bg-metamorph-border text-metamorph-muted hover:text-metamorph-text text-lg font-bold transition-colors"
+                style={{ minHeight: '44px', minWidth: '44px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm text-metamorph-text leading-relaxed">
+              <div className="bg-metamorph-dark rounded-xl p-4 space-y-2 border border-metamorph-border">
+                <p className="font-semibold text-metamorph-accent">The Goal</p>
+                <p className="text-metamorph-muted">Guess all the hidden words in the chain to complete today's puzzle.</p>
+              </div>
+
+              <div className="space-y-2.5">
+                {[
+                  ['🦋', 'Transform', 'Each word transforms the meaning of the previous word — follow the theme!'],
+                  ['🔗', 'Chain Rule', 'The last letter of each word must match the first letter of the next.'],
+                  ['💡', 'Hints', 'Tap "Need a hint?" if you\'re stuck. Hints are shown in your shared result.'],
+                  ['📅', 'Daily', 'A new puzzle drops every day at midnight. Keep your streak going!'],
+                ].map(([icon, title, desc]) => (
+                  <div key={title} className="flex gap-3 items-start bg-metamorph-dark rounded-xl p-3 border border-metamorph-border">
+                    <span className="text-xl flex-shrink-0 mt-0.5">{icon}</span>
+                    <div>
+                      <span className="font-semibold text-metamorph-text">{title}: </span>
+                      <span className="text-metamorph-muted">{desc}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-metamorph-dark rounded-xl p-4 border border-metamorph-border">
+                <p className="font-semibold text-metamorph-muted text-xs uppercase tracking-widest mb-3">Example chain</p>
+                <div className="flex flex-col gap-2">
+                  {[['APPLE','🍎 Start word'],['EGG','E→E  Oval breakfast protein'],['GALAXY','G→G  Billions of stars']].map(([w,d]) => (
+                    <div key={w} className="flex items-center gap-3">
+                      <span className="font-mono font-bold text-metamorph-correct text-sm w-20 flex-shrink-0">{w}</span>
+                      <span className="text-metamorph-muted text-xs">{d}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="w-full py-3 rounded-xl bg-metamorph-accent hover:opacity-90 active:scale-95 text-white font-bold text-base transition-all"
+              style={{ minHeight: '48px' }}
+            >
+              Let's Play! 🦋
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // STATS MODAL
+    // ─────────────────────────────────────────────
+    function StatsModal({ stats, onClose }) {
+      const statItems = [
+        { value: stats.gamesPlayed, label: 'Played' },
+        { value: stats.gamesPlayed > 0 ? '100%' : '—', label: 'Win Rate' },
+        { value: stats.currentStreak, label: 'Streak 🔥' },
+        { value: stats.maxStreak, label: 'Best 🏆' },
+      ];
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 anim-fade-in">
+          <div className="bg-white rounded-2xl border-2 border-metamorph-border max-w-sm w-full p-6 flex flex-col gap-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-metamorph-accent">Statistics</h2>
+              <button
+                onClick={onClose}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-metamorph-dark hover:bg-metamorph-border text-metamorph-muted hover:text-metamorph-text text-lg font-bold transition-colors"
+                style={{ minHeight: '44px', minWidth: '44px' }}
+              >✕</button>
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              {statItems.map(({ value, label }) => (
+                <div key={label} className="flex flex-col items-center gap-1.5 bg-metamorph-dark rounded-xl py-4 px-1 border border-metamorph-border">
+                  <span className="text-2xl font-bold text-metamorph-accent leading-none">{value}</span>
+                  <span className="text-xs text-metamorph-muted leading-tight">{label}</span>
+                </div>
+              ))}
+            </div>
+            {stats.gamesPlayed === 0 && (
+              <p className="text-center text-metamorph-muted text-sm bg-metamorph-dark rounded-xl p-3 border border-metamorph-border">
+                Complete today's puzzle to start tracking your stats!
+              </p>
+            )}
+            <button onClick={onClose} className="w-full py-3 rounded-xl bg-metamorph-accent hover:opacity-90 active:scale-95 text-white font-bold transition-all" style={{ minHeight: '48px' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // GIVE UP MODAL
+    // ─────────────────────────────────────────────
+    function GiveUpModal({ onConfirm, onCancel }) {
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 anim-fade-in">
+          <div className="bg-white rounded-2xl border-2 border-metamorph-border max-w-sm w-full p-6 flex flex-col gap-5 shadow-2xl">
+            <div className="text-center">
+              <div className="text-4xl mb-3">🏳️</div>
+              <h2 className="text-xl font-bold text-metamorph-text mb-1">Give Up?</h2>
+              <p className="text-metamorph-muted text-sm leading-relaxed">
+                This will reveal all remaining words.<br/>Your streak will not be extended.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={onConfirm}
+                className="w-full py-3 rounded-xl bg-white border-2 border-metamorph-wrong hover:bg-red-50 active:scale-95 text-metamorph-wrong font-bold text-base transition-all"
+                style={{ minHeight: '48px' }}
+              >
+                Reveal Answers
+              </button>
+              <button
+                onClick={onCancel}
+                className="w-full py-3 rounded-xl bg-metamorph-accent hover:opacity-90 active:scale-95 text-white font-bold text-base transition-all"
+                style={{ minHeight: '48px' }}
+              >
+                Keep Trying 💪
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // ALREADY COMPLETED VIEW
+    // ─────────────────────────────────────────────
+    function AlreadyCompletedView({ puzzleNumber, stats }) {
+      const countdown = useCountdown();
+      const statItems = [
+        { v: stats.gamesPlayed, l: 'Played' },
+        { v: stats.currentStreak, l: 'Streak 🔥' },
+        { v: stats.maxStreak, l: 'Best 🏆' },
+      ];
+      return (
+        <div className="flex flex-col items-center gap-6 py-10 text-center anim-fade-in">
+          <span className="text-6xl anim-flutter inline-block">🦋</span>
+          <div>
+            <h2 className="text-2xl font-bold text-metamorph-correct mb-1">Puzzle #{puzzleNumber} Complete!</h2>
+            <p className="text-metamorph-muted">You've already solved today's puzzle.</p>
+          </div>
+          <div className="bg-white border-2 border-metamorph-border rounded-2xl px-10 py-5 flex flex-col items-center gap-2 shadow-md">
+            <span className="text-xs text-metamorph-muted uppercase tracking-widest font-semibold">Next puzzle in</span>
+            <span className="text-4xl font-mono font-bold text-metamorph-accent tabular-nums">{countdown}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center w-full max-w-xs">
+            {statItems.map(({ v, l }) => (
+              <div key={l} className="flex flex-col items-center bg-white border-2 border-metamorph-border rounded-xl py-3 gap-1 shadow-sm">
+                <span className="text-2xl font-bold text-metamorph-accent leading-none">{v}</span>
+                <span className="text-xs text-metamorph-muted">{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // WORD ROW
+    // ─────────────────────────────────────────────
+    function WordRow({ word, mode, wordIndex, inputValue, feedbackState, hintUsed, hint, transformation, inputRef, onInput, onSubmit, onHint }) {
+      const isIncorrect = feedbackState === 'incorrect';
+
+      const cardBase = "rounded-xl border-2 p-4 transition-all duration-200";
+      const cardStyle = {
+        solved:    `${cardBase} bg-white border-metamorph-correct anim-pop-in shadow-sm`,
+        active:    `${cardBase} bg-white border-metamorph-accent anim-pulse-glow ${isIncorrect ? 'anim-shake' : ''} shadow-md`,
+        locked:    `${cardBase} bg-metamorph-dark border-metamorph-border`,
+        revealed:  `${cardBase} bg-red-50 border-red-200 anim-pop-in`,
+      }[mode];
+
+      const placeholder = `${word[0]} _ _ _ ?  (${word.length} letters)`;
+
+      return (
+        <div className="flex flex-col gap-1.5">
+          {/* Chain connector shown between rows (not before first) */}
+          {wordIndex > 0 && (
+            <div className="flex items-center gap-2 px-3" aria-hidden="true">
+              <div className="h-px flex-1 bg-metamorph-border/60" />
+              <div className={`flex items-center gap-1 text-xs font-mono font-bold px-2 py-0.5 rounded-full ${mode !== 'locked' ? 'bg-metamorph-accent/15 text-metamorph-accent border border-metamorph-border' : 'bg-metamorph-dark text-metamorph-muted border border-metamorph-border'}`}>
+                {word[0]}
+              </div>
+              <div className="h-px flex-1 bg-metamorph-border/60" />
+            </div>
+          )}
+
+          {/* Main card */}
+          <div className={cardStyle} key={mode === 'active' && isIncorrect ? 'shake' : 'static'}>
+            {/* SOLVED MODE */}
+            {mode === 'solved' && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-xl tracking-widest text-metamorph-correct">
+                    {word}
+                  </span>
+                  {wordIndex === 0 && (
+                    <span className="ml-2 text-xs text-metamorph-accent bg-metamorph-dark border border-metamorph-border rounded-md px-1.5 py-0.5 font-semibold">Start</span>
+                  )}
+                </div>
+                {wordIndex > 0 && (
+                  <span className="text-metamorph-correct text-lg">✓</span>
+                )}
+              </div>
+            )}
+
+            {/* ACTIVE MODE */}
+            {mode === 'active' && (
+              <div className="flex gap-2 items-center">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  inputMode="text"
+                  value={inputValue}
+                  onChange={e => onInput(e.target.value.toUpperCase())}
+                  onKeyDown={e => e.key === 'Enter' && onSubmit()}
+                  placeholder={placeholder}
+                  style={{ fontSize: '16px' }}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  enterKeyHint="go"
+                  className="flex-1 bg-transparent text-metamorph-text font-bold tracking-wider placeholder-metamorph-border/80 min-w-0"
+                  aria-label={`Guess word ${wordIndex + 1}, starts with ${word[0]}, ${word.length} letters`}
+                />
+                <button
+                  onClick={onSubmit}
+                  className="px-4 py-2 rounded-lg bg-metamorph-accent hover:opacity-90 active:scale-95 text-white font-bold text-sm transition-all flex-shrink-0"
+                  style={{ minHeight: '44px', minWidth: '52px' }}
+                >
+                  GO
+                </button>
+              </div>
+            )}
+
+            {/* LOCKED MODE */}
+            {mode === 'locked' && (
+              <div className="flex items-center gap-1">
+                <span className="font-bold text-metamorph-muted font-mono text-base tracking-widest">
+                  {word[0]}{Array(word.length - 1).fill('_').join(' ')}
+                </span>
+                <span className="ml-1 text-metamorph-border text-xs">({word.length})</span>
+              </div>
+            )}
+
+            {/* REVEALED MODE */}
+            {mode === 'revealed' && (
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xl tracking-widest text-metamorph-wrong/70">
+                  {word}
+                </span>
+                <span className="text-metamorph-wrong/60 text-lg">✕</span>
+              </div>
+            )}
+          </div>
+
+          {/* Hint button — below active card */}
+          {mode === 'active' && !hintUsed && wordIndex > 0 && (
+            <button
+              onClick={onHint}
+              className="self-end text-xs text-metamorph-hint underline underline-offset-2 opacity-70 hover:opacity-100 transition-opacity px-2 py-1"
+              style={{ minHeight: '36px' }}
+            >
+              Need a hint? 🌱
+            </button>
+          )}
+
+          {/* Hint text — shown after hint requested */}
+          {mode === 'active' && hintUsed && (
+            <div className="anim-fade-slide bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-metamorph-hint font-medium">
+              💡 {hint}
+            </div>
+          )}
+
+          {/* Transformation hint — below solved or revealed rows (not first) */}
+          {(mode === 'solved' || mode === 'revealed') && wordIndex > 0 && transformation && (
+            <div className="anim-fade-slide px-3 py-1.5 text-xs text-metamorph-muted italic bg-metamorph-dark rounded-lg border border-metamorph-border">
+              ↳ {transformation}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // PUZZLE VIEW
+    // ─────────────────────────────────────────────
+    function PuzzleView({ puzzle, solvedCount, inputValue, feedbackState, hintUsed, inputRef, onInput, onSubmit, onHint, isGivenUp, onGiveUp }) {
+      return (
+        <div className="w-full flex flex-col gap-2 pb-4">
+          <div className="text-center mb-2">
+            <p className="text-metamorph-muted text-sm italic">{puzzle.title}</p>
+            {isGivenUp ? (
+              <p className="text-metamorph-wrong/70 text-xs mt-0.5 font-medium">Answers revealed — better luck tomorrow!</p>
+            ) : (
+              <p className="text-metamorph-muted text-xs mt-0.5">
+                {solvedCount} of {puzzle.words.length} words found
+              </p>
+            )}
+          </div>
+          {puzzle.words.map((word, i) => {
+            let mode;
+            if (i < solvedCount) {
+              mode = 'solved';
+            } else if (isGivenUp) {
+              mode = 'revealed';
+            } else if (i === solvedCount) {
+              mode = 'active';
+            } else {
+              mode = 'locked';
+            }
+            return (
+              <WordRow
+                key={i}
+                word={word}
+                mode={mode}
+                wordIndex={i}
+                inputValue={mode === 'active' ? inputValue : ''}
+                feedbackState={mode === 'active' ? feedbackState : null}
+                hintUsed={hintUsed[i]}
+                hint={puzzle.hints[i]}
+                transformation={i > 0 ? puzzle.transformations[i - 1] : null}
+                inputRef={mode === 'active' ? inputRef : null}
+                onInput={onInput}
+                onSubmit={onSubmit}
+                onHint={() => onHint(i)}
+              />
+            );
+          })}
+          {!isGivenUp && (
+            <div className="flex justify-center mt-3">
+              <button
+                onClick={onGiveUp}
+                className="text-xs text-metamorph-muted/60 hover:text-metamorph-wrong/70 underline underline-offset-2 transition-colors px-3 py-2"
+                style={{ minHeight: '44px' }}
+              >
+                Give up &amp; reveal answers
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // SUCCESS VIEW
+    // ─────────────────────────────────────────────
+    function SuccessView({ puzzle, hintUsed, puzzleNumber, stats, onShowStats, isGivenUp, solvedCount }) {
+      const [copied, setCopied] = useState(false);
+      const countdown = useCountdown();
+
+      function buildShareText() {
+        if (isGivenUp) {
+          const guessed = solvedCount - 1; // first word is free
+          const total = puzzle.words.length - 1;
+          const icons = puzzle.words.slice(1).map((_, i) => i < guessed ? (hintUsed[i + 1] ? '🌱' : '✅') : '❌');
+          return [
+            `Metamorphosis #${puzzleNumber} 🏳️`,
+            `${icons.join('')} ${guessed}/${total} gave up`,
+            ``,
+            `The daily word chain puzzle`,
+          ].join('\n');
+        }
+        const icons = puzzle.words.slice(1).map((_, i) => hintUsed[i + 1] ? '🌱' : '✅');
+        return [
+          `Metamorphosis #${puzzleNumber} 🦋`,
+          `${icons.join('')} ${puzzle.words.length - 1}/${puzzle.words.length - 1}`,
+          ``,
+          `The daily word chain puzzle`,
+        ].join('\n');
+      }
+
+      function handleShare() {
+        const text = buildShareText();
+        if (navigator.share) {
+          navigator.share({ text }).catch(() => {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2500);
+          }).catch(() => fallbackCopy(text));
+        } else {
+          fallbackCopy(text);
+        }
+      }
+
+      function fallbackCopy(text) {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.position = 'fixed';
+        el.style.top = '-9999px';
+        document.body.appendChild(el);
+        el.focus(); el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }
+
+      const statItems = [
+        { v: stats.gamesPlayed, l: 'Played' },
+        { v: stats.currentStreak, l: 'Streak 🔥' },
+        { v: stats.maxStreak, l: 'Best 🏆' },
+      ];
+
+      return (
+        <div className="flex flex-col items-center gap-5 py-6 text-center w-full anim-fade-in">
+          <span className="text-6xl inline-block" style={isGivenUp ? {} : { animation: 'flutter 1.9s ease-in-out infinite' }}>
+            {isGivenUp ? '🏳️' : '🦋'}
+          </span>
+          <div>
+            {isGivenUp ? (
+              <>
+                <h2 className="text-2xl font-bold text-metamorph-muted">Answers Revealed</h2>
+                <p className="text-metamorph-muted text-sm mt-1">
+                  You guessed <strong className="text-metamorph-text">{solvedCount - 1}</strong> of <strong className="text-metamorph-text">{puzzle.words.length - 1}</strong> words in <em>{puzzle.title}</em>
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold text-metamorph-correct">Metamorphosed!</h2>
+                <p className="text-metamorph-muted text-sm mt-1">You completed <strong className="text-metamorph-text">{puzzle.title}</strong></p>
+              </>
+            )}
+          </div>
+
+          {/* Word chain summary */}
+          <div className="w-full bg-white border-2 border-metamorph-border rounded-2xl p-4 flex flex-col gap-2 shadow-sm">
+            <p className="text-xs text-metamorph-muted uppercase tracking-widest font-semibold mb-1">The Chain</p>
+            {puzzle.words.map((word, i) => {
+              const wasGuessed = i < solvedCount;
+              const wasRevealed = isGivenUp && !wasGuessed;
+              const iconEl = i === 0 ? '🟢'
+                : wasRevealed ? '❌'
+                : hintUsed[i] ? '🌱'
+                : '✅';
+              const wordColor = wasRevealed
+                ? 'text-metamorph-wrong/60'
+                : hintUsed[i] && i > 0 ? 'text-metamorph-hint'
+                : 'text-metamorph-correct';
+              return (
+                <div key={i} className="flex items-start gap-2 text-left">
+                  <span className="text-base font-mono font-bold flex-shrink-0 w-5 mt-0.5">{iconEl}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className={`font-bold tracking-widest text-sm ${wordColor}`}>{word}</span>
+                    {i < puzzle.words.length - 1 && (
+                      <p className="text-xs text-metamorph-muted italic truncate">↳ {puzzle.transformations[i]}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-3 w-full">
+            {statItems.map(({ v, l }) => (
+              <div key={l} className="flex flex-col items-center bg-white border-2 border-metamorph-border rounded-xl py-3 gap-1 shadow-sm">
+                <span className="text-2xl font-bold text-metamorph-accent leading-none">{v}</span>
+                <span className="text-xs text-metamorph-muted">{l}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Share button */}
+          <button
+            onClick={handleShare}
+            className="w-full py-3.5 rounded-xl bg-metamorph-accent hover:opacity-90 active:scale-95 text-white font-bold text-base transition-all shadow-lg"
+            style={{ minHeight: '52px' }}
+          >
+            {copied ? '✓ Copied to clipboard!' : 'Share Result 🦋'}
+          </button>
+
+          {/* Countdown */}
+          <div className="flex flex-col items-center gap-1 text-center">
+            <p className="text-metamorph-muted text-xs uppercase tracking-widest font-semibold">Next puzzle in</p>
+            <span className="text-2xl font-mono font-bold text-metamorph-accent tabular-nums">{countdown}</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // HEADER
+    // ─────────────────────────────────────────────
+    function Header({ puzzleNumber, onHowToPlay, onStats }) {
+      return (
+        <header className="w-full border-b-2 border-metamorph-border bg-metamorph-card sticky top-0 z-10">
+          <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+            <button
+              onClick={onHowToPlay}
+              className="text-metamorph-muted hover:text-metamorph-text text-sm font-medium transition-colors"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+              aria-label="How to play"
+            >
+              Help
+            </button>
+            <div className="text-center">
+              <div className="flex items-center gap-2 justify-center">
+                <span className="anim-flutter inline-block text-xl" aria-hidden="true">🦋</span>
+                <h1 className="font-bold text-lg tracking-wide text-metamorph-accent">Metamorphosis</h1>
+              </div>
+              <div className="text-xs text-metamorph-muted font-medium">Puzzle #{puzzleNumber}</div>
+            </div>
+            <button
+              onClick={onStats}
+              className="text-metamorph-muted hover:text-metamorph-text text-sm font-medium transition-colors"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+              aria-label="View statistics"
+            >
+              Stats
+            </button>
+          </div>
+        </header>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // APP
+    // ─────────────────────────────────────────────
+    function App() {
+      const puzzleIndex = getDailyPuzzleIndex();
+      const puzzleNumber = getPuzzleNumber();
+      const currentPuzzle = PUZZLES[puzzleIndex];
+
+      const [solvedCount, setSolvedCount]       = useState(1);
+      const [inputValue, setInputValue]         = useState('');
+      const [feedbackState, setFeedbackState]   = useState(null);
+      const [hintUsed, setHintUsed]             = useState(() => new Array(currentPuzzle.words.length).fill(false));
+      const [isComplete, setIsComplete]         = useState(false);
+      const [showHowToPlay, setShowHowToPlay]   = useState(false);
+      const [showStats, setShowStats]           = useState(false);
+      const [showGiveUp, setShowGiveUp]         = useState(false);
+      const [isGivenUp, setIsGivenUp]           = useState(false);
+      const [stats, setStats]                   = useState(loadStats);
+      const [alreadyCompleted, setAlreadyCompleted] = useState(isCompletedToday);
+      const [confettiDone, setConfettiDone]     = useState(false);
+
+      const canvasRef = useRef(null);
+      const inputRef  = useRef(null);
+      const feedbackTimerRef = useRef(null);
+
+      // Auto-focus input when active word changes
+      useEffect(() => {
+        if (!isComplete && !alreadyCompleted && inputRef.current) {
+          const t = setTimeout(() => {
+            if (inputRef.current) {
+              inputRef.current.focus();
+              inputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 160);
+          return () => clearTimeout(t);
+        }
+      }, [solvedCount, isComplete, alreadyCompleted]);
+
+      // Confetti on completion
+      useEffect(() => {
+        if (isComplete && !confettiDone) {
+          setConfettiDone(true);
+          setTimeout(() => launchConfetti(canvasRef.current), 300);
+        }
+      }, [isComplete]);
+
+      // Hide loading screen once React is hydrated
+      useEffect(() => {
+        const el = document.getElementById('loading');
+        if (el) {
+          el.classList.add('hidden');
+          setTimeout(() => el.remove(), 500);
+        }
+        // Show how-to-play for first-time users
+        const seen = localStorage.getItem('metamorphosis_seen_help');
+        if (!seen) {
+          setShowHowToPlay(true);
+          localStorage.setItem('metamorphosis_seen_help', 'true');
+        }
+      }, []);
+
+      function handleSubmit() {
+        const guess = inputValue.trim().toUpperCase();
+        if (!guess) return;
+        const target = currentPuzzle.words[solvedCount];
+        if (!target) return;
+
+        if (guess === target) {
+          // Correct
+          clearTimeout(feedbackTimerRef.current);
+          setFeedbackState('correct');
+          const next = solvedCount + 1;
+          feedbackTimerRef.current = setTimeout(() => {
+            setSolvedCount(next);
+            setInputValue('');
+            setFeedbackState(null);
+            if (next >= currentPuzzle.words.length) {
+              setIsComplete(true);
+              markCompletedToday();
+              const newStats = computeNewStats(stats);
+              setStats(newStats);
+              saveStats(newStats);
+            }
+          }, 280);
+        } else {
+          // Incorrect
+          clearTimeout(feedbackTimerRef.current);
+          setFeedbackState('incorrect');
+          feedbackTimerRef.current = setTimeout(() => {
+            setFeedbackState(null);
+            setInputValue('');
+          }, 650);
+        }
+      }
+
+      function handleHint(wordIndex) {
+        const updated = [...hintUsed];
+        updated[wordIndex] = true;
+        setHintUsed(updated);
+      }
+
+      function handleGiveUp() {
+        setIsGivenUp(true);
+        setShowGiveUp(false);
+        setInputValue('');
+        clearTimeout(feedbackTimerRef.current);
+        setFeedbackState(null);
+        markCompletedToday();
+        // Give up: gamesPlayed++ but streak resets to 0
+        const newStats = {
+          gamesPlayed: stats.lastCompletedDate === getTodayKey() ? stats.gamesPlayed : stats.gamesPlayed + 1,
+          currentStreak: 0,
+          maxStreak: stats.maxStreak,
+          lastCompletedDate: getTodayKey(),
+        };
+        setStats(newStats);
+        saveStats(newStats);
+      }
+
+      const showModal = showHowToPlay || showStats || showGiveUp;
+
+      return (
+        <div className="min-h-screen bg-metamorph-bg text-metamorph-text flex flex-col">
+          {/* Confetti canvas */}
+          <canvas
+            ref={canvasRef}
+            style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 9999, pointerEvents: 'none' }}
+            aria-hidden="true"
+          />
+
+          {/* Modals */}
+          {showHowToPlay && <HowToPlayModal onClose={() => setShowHowToPlay(false)} />}
+          {showStats && <StatsModal stats={stats} onClose={() => setShowStats(false)} />}
+          {showGiveUp && <GiveUpModal onConfirm={handleGiveUp} onCancel={() => setShowGiveUp(false)} />}
+
+          {/* Header */}
+          <Header
+            puzzleNumber={puzzleNumber}
+            onHowToPlay={() => setShowHowToPlay(true)}
+            onStats={() => setShowStats(true)}
+          />
+
+          {/* Main content */}
+          <main className="flex-1 w-full max-w-lg mx-auto px-4 pt-4 pb-6">
+            {alreadyCompleted ? (
+              <AlreadyCompletedView puzzleNumber={puzzleNumber} stats={stats} />
+            ) : isComplete ? (
+              <SuccessView
+                puzzle={currentPuzzle}
+                hintUsed={hintUsed}
+                puzzleNumber={puzzleNumber}
+                stats={stats}
+                onShowStats={() => setShowStats(true)}
+                isGivenUp={false}
+                solvedCount={solvedCount}
+              />
+            ) : isGivenUp ? (
+              <>
+                <PuzzleView
+                  puzzle={currentPuzzle}
+                  solvedCount={solvedCount}
+                  inputValue=""
+                  feedbackState={null}
+                  hintUsed={hintUsed}
+                  inputRef={null}
+                  onInput={() => {}}
+                  onSubmit={() => {}}
+                  onHint={() => {}}
+                  isGivenUp={true}
+                  onGiveUp={() => {}}
+                />
+                <SuccessView
+                  puzzle={currentPuzzle}
+                  hintUsed={hintUsed}
+                  puzzleNumber={puzzleNumber}
+                  stats={stats}
+                  onShowStats={() => setShowStats(true)}
+                  isGivenUp={true}
+                  solvedCount={solvedCount}
+                />
+              </>
+            ) : (
+              <PuzzleView
+                puzzle={currentPuzzle}
+                solvedCount={solvedCount}
+                inputValue={inputValue}
+                feedbackState={feedbackState}
+                hintUsed={hintUsed}
+                inputRef={inputRef}
+                onInput={setInputValue}
+                onSubmit={handleSubmit}
+                onHint={handleHint}
+                isGivenUp={false}
+                onGiveUp={() => setShowGiveUp(true)}
+              />
+            )}
+          </main>
+
+          {/* Footer */}
+          <Footer
+            onHowToPlay={() => setShowHowToPlay(true)}
+            onStats={() => setShowStats(true)}
+          />
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────
+    // BOOTSTRAP
+    // ─────────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
